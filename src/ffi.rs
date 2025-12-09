@@ -20,7 +20,9 @@ pub struct libraw_processed_image_t {
     pub data: [c_uchar; 1],     // Flexible array member
 }
 
-#[link(name = "raw", kind = "static")]
+// Link configuration - use different library names based on target
+#[cfg_attr(all(target_os = "windows", target_env = "msvc"), link(name = "libraw_static", kind = "static"))]
+#[cfg_attr(not(all(target_os = "windows", target_env = "msvc")), link(name = "raw", kind = "static"))]
 extern "C" {
     // Library version
     pub fn libraw_version() -> *const c_char;
