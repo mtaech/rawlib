@@ -1,0 +1,38 @@
+[package]
+name = "rawlib"
+version = "0.2.0"
+edition = "2021"
+authors = []
+description = "High-performance RAW image thumbnail extractor with batch processing support"
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+keywords = ["raw", "image", "thumbnail", "libraw", "photography"]
+categories = ["multimedia::images", "command-line-utilities"]
+
+[dependencies]
+libc = "0.2"
+clap = { version = "4.5", features = ["derive", "cargo", "wrap_help"] }
+indicatif = "0.17"
+walkdir = "2.5"
+thiserror = "1.0"
+log = "0.4"
+env_logger = "0.11"
+
+[build-dependencies]
+cc = "1.0"
+
+[dev-dependencies]
+tempfile = "3.8"
+
+[lib]
+name = "rawlib"
+path = "src/lib.rs"
+
+[[bin]]
+name = "rawlib"
+path = "src/main.rs"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
