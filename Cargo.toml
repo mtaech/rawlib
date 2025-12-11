@@ -4,10 +4,11 @@ version = "0.2.0"
 edition = "2021"
 authors = []
 description = "High-performance RAW image thumbnail extractor with batch processing support"
-license = "MIT OR Apache-2.0"
+license = "MIT"
 readme = "README.md"
 keywords = ["raw", "image", "thumbnail", "libraw", "photography"]
 categories = ["multimedia::images", "command-line-utilities"]
+homepage = "https://github.com/mtaech/rawlib"
 
 [dependencies]
 libc = "0.2"
