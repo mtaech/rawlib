@@ -1,6 +1,6 @@
 [package]
 name = "rawlib"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 authors = []
 description = "High-performance RAW image thumbnail extractor with batch processing support"
