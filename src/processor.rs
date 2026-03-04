@@ -1,12 +1,25 @@
-//! Batch processing logic
+//! Batch processing logic with parallel execution support
 
 use crate::cli::{Config, ProcessMode, OverwritePolicy, Verbosity, ProcessStats};
 use crate::error::{Error, Result};
 use crate::utils;
-use indicatif::{ProgressBar, ProgressStyle};
+use indicatif::{ProgressBar, ProgressStyle, MultiProgress};
 use log::{debug, info, warn};
+use rayon::prelude::*;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
+/// 单个文件的处理结果
+#[derive(Debug)]
+struct FileResult {
+    input: PathBuf,
+    output: PathBuf,
+    size: usize,
+    input_size: u64,
+    skipped: bool,
+    error: Option<Error>,
+}
 
 pub struct BatchProcessor {
     config: Config,
@@ -17,7 +30,7 @@ impl BatchProcessor {
         Self { config }
     }
     
-    /// 执行批处理
+    /// 执行批处理（自动选择串行或并行）
     pub fn process(&self) -> Result<ProcessStats> {
         info!("Starting batch processing");
         
@@ -31,52 +44,38 @@ impl BatchProcessor {
             ..Default::default()
         };
         
-        // 创建进度条
-        let progress = self.create_progress_bar(total)?;
+        // 开始计时
+        stats.start();
         
-        // 处理每个文件
+        // 如果只有一个文件，使用串行处理
+        if total == 1 || self.config.jobs == Some(1) {
+            debug!("Using sequential processing");
+            self.process_sequential(&mut stats)?;
+        } else {
+            debug!("Using parallel processing");
+            self.process_parallel(&mut stats)?;
+        }
+        
+        // 结束计时
+        stats.finish();
+        
+        info!("Batch processing completed: {} success, {} failed, {} skipped", 
+              stats.success, stats.failed, stats.skipped);
+        
+        Ok(stats)
+    }
+    
+    /// 串行处理（单线程）
+    fn process_sequential(&self, stats: &mut ProcessStats) -> Result<()> {
+        let progress = self.create_progress_bar(stats.total)?;
+        
         for input_file in &self.config.input_files {
             if let Some(ref pb) = progress {
                 pb.set_message(format!("处理: {}", input_file.display()));
             }
             
-            let output_file = self.determine_output_path(input_file);
-            
-            // 处理覆盖策略
-            let final_output = match self.handle_overwrite_policy(&output_file)? {
-                Some(path) => path,
-                None => {
-                    stats.skipped += 1;
-                    if self.config.verbosity >= Verbosity::Normal {
-                        println!("⊘ 跳过 (已存在): {}", output_file.display());
-                    }
-                    if let Some(ref pb) = progress {
-                        pb.inc(1);
-                    }
-                    continue;
-                }
-            };
-            
-            // 处理文件
-            match self.process_single_file(input_file, &final_output) {
-                Ok(size) => {
-                    stats.success += 1;
-                    if self.config.verbosity >= Verbosity::Normal {
-                        println!("✓ {} -> {} ({} 字节)", 
-                                 input_file.display(), 
-                                 final_output.display(),
-                                 size);
-                    }
-                    if self.config.verbosity == Verbosity::Verbose {
-                        self.print_thumbnail_info(input_file);
-                    }
-                }
-                Err(e) => {
-                    stats.failed += 1;
-                    warn!("Failed to process {}: {}", input_file.display(), e);
-                    eprintln!("✗ {}: {}", input_file.display(), e);
-                }
-            }
+            let result = self.process_single_file(input_file);
+            self.handle_result(&result, stats);
             
             if let Some(ref pb) = progress {
                 pb.inc(1);
@@ -87,10 +86,162 @@ impl BatchProcessor {
             pb.finish_with_message("处理完成");
         }
         
-        info!("Batch processing completed: {} success, {} failed, {} skipped", 
-              stats.success, stats.failed, stats.skipped);
+        Ok(())
+    }
+    
+    /// 并行处理（多线程）
+    fn process_parallel(&self, stats: &mut ProcessStats) -> Result<()> {
+        // 设置 Rayon 线程池
+        let jobs = self.config.jobs.unwrap_or_else(num_cpus::get);
+        debug!("Using {} parallel workers", jobs);
         
-        Ok(stats)
+        // 创建自定义线程池
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(jobs)
+            .build()
+            .map_err(|e| Error::Config { 
+                message: format!("Failed to create thread pool: {}", e) 
+            })?;
+        
+        // 使用 MultiProgress 支持多线程进度条
+        let multi_progress = if self.config.show_progress && self.config.verbosity != Verbosity::Quiet {
+            Some(Arc::new(MultiProgress::new()))
+        } else {
+            None
+        };
+        
+        let progress = multi_progress.as_ref().map(|mp| {
+            let pb = mp.add(ProgressBar::new(stats.total as u64));
+            pb.set_style(
+                ProgressStyle::default_bar()
+                    .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} ({eta})")
+                    .unwrap()
+                    .progress_chars("#>-")
+            );
+            pb
+        });
+        
+        // 并行处理文件
+        let results: Vec<FileResult> = pool.install(|| {
+            self.config.input_files
+                .par_iter()
+                .map(|input_file| {
+                    let result = self.process_single_file(input_file);
+                    
+                    if let Some(ref pb) = progress {
+                        pb.inc(1);
+                    }
+                    
+                    result
+                })
+                .collect()
+        });
+        
+        if let Some(pb) = progress {
+            pb.finish_with_message("处理完成");
+        }
+        
+        // 汇总结果
+        for result in results {
+            self.handle_result(&result, stats);
+        }
+        
+        Ok(())
+    }
+    
+    /// 处理单个文件并返回结果
+    fn process_single_file(&self, input_file: &Path) -> FileResult {
+        let output_file = self.determine_output_path(input_file);
+        
+        // 获取输入文件大小
+        let input_size = fs::metadata(input_file)
+            .map(|m| m.len())
+            .unwrap_or(0);
+        
+        // 处理覆盖策略
+        let final_output = match self.handle_overwrite_policy(&output_file) {
+            Ok(Some(path)) => path,
+            Ok(None) => {
+                return FileResult {
+                    input: input_file.to_path_buf(),
+                    output: output_file,
+                    size: 0,
+                    input_size,
+                    skipped: true,
+                    error: None,
+                };
+            }
+            Err(e) => {
+                return FileResult {
+                    input: input_file.to_path_buf(),
+                    output: output_file,
+                    size: 0,
+                    input_size,
+                    skipped: false,
+                    error: Some(e),
+                };
+            }
+        };
+        
+        // 提取并保存缩略图
+        match self.extract_and_save(input_file, &final_output) {
+            Ok(size) => FileResult {
+                input: input_file.to_path_buf(),
+                output: final_output,
+                size,
+                input_size,
+                skipped: false,
+                error: None,
+            },
+            Err(e) => FileResult {
+                input: input_file.to_path_buf(),
+                output: final_output,
+                size: 0,
+                input_size,
+                skipped: false,
+                error: Some(e),
+            },
+        }
+    }
+    
+    /// 提取并保存缩略图
+    fn extract_and_save(&self, input: &Path, output: &Path) -> Result<usize> {
+        use rawlib::extract_thumbnail;
+        
+        debug!("Processing file: {} -> {}", input.display(), output.display());
+        
+        let thumb_bytes = extract_thumbnail(input)?;
+        fs::write(output, &thumb_bytes)?;
+        
+        Ok(thumb_bytes.len())
+    }
+    
+    /// 处理结果并更新统计
+    fn handle_result(&self, result: &FileResult, stats: &mut ProcessStats) {
+        if result.skipped {
+            stats.skipped += 1;
+            if self.config.verbosity >= Verbosity::Normal {
+                println!("⊘ 跳过 (已存在): {}", result.output.display());
+            }
+        } else if let Some(ref e) = result.error {
+            stats.failed += 1;
+            stats.total_input_bytes += result.input_size;
+            warn!("Failed to process {}: {}", result.input.display(), e);
+            eprintln!("✗ {}: {}", result.input.display(), e);
+        } else {
+            stats.success += 1;
+            stats.total_input_bytes += result.input_size;
+            stats.total_output_bytes += result.size as u64;
+            if self.config.verbosity >= Verbosity::Normal {
+                println!("✓ {} -> {} ({} 字节)", 
+                         result.input.display(), 
+                         result.output.display(),
+                         result.size);
+            }
+            if self.config.verbosity == Verbosity::Verbose {
+                self.print_thumbnail_info(&result.input);
+            }
+        }
     }
     
     /// 确保输出目录存在
@@ -173,18 +324,6 @@ impl BatchProcessor {
                 Ok(Some(renamed))
             }
         }
-    }
-    
-    /// 处理单个文件
-    fn process_single_file(&self, input: &Path, output: &Path) -> Result<usize> {
-        use rawlib::extract_thumbnail;
-        
-        debug!("Processing file: {} -> {}", input.display(), output.display());
-        
-        let thumb_bytes = extract_thumbnail(input)?;
-        fs::write(output, &thumb_bytes)?;
-        
-        Ok(thumb_bytes.len())
     }
     
     /// 打印缩略图详细信息

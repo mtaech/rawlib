@@ -84,6 +84,15 @@ struct Cli {
     )]
     progress: bool,
 
+    /// 并行处理的工作线程数
+    #[arg(
+        short = 'j',
+        long = "jobs",
+        value_name = "N",
+        help = "Number of parallel jobs (default: number of CPU cores)"
+    )]
+    jobs: Option<usize>,
+
     /// 输出文件格式
     #[arg(
         short = 'f',

@@ -103,6 +103,9 @@ pub struct Config {
     
     /// 允许的文件扩展名
     pub extensions: Vec<String>,
+    
+    /// 并行工作线程数 (None 表示使用 CPU 核心数)
+    pub jobs: Option<usize>,
 }
 
 impl Config {
@@ -155,6 +158,7 @@ impl Config {
             show_progress: cli.progress,
             format,
             extensions: cli.extensions,
+            jobs: cli.jobs,
         })
     }
 }
@@ -167,21 +171,112 @@ pub struct ProcessStats {
     pub skipped: usize,
     pub failed: usize,
     pub quiet: bool,
+    /// 处理开始时间
+    pub start_time: Option<std::time::Instant>,
+    /// 处理结束时间
+    pub end_time: Option<std::time::Instant>,
+    /// 总处理字节数（输入文件）
+    pub total_input_bytes: u64,
+    /// 总输出字节数（缩略图）
+    pub total_output_bytes: u64,
 }
 
 impl ProcessStats {
+    /// 开始计时
+    pub fn start(&mut self) {
+        self.start_time = Some(std::time::Instant::now());
+    }
+    
+    /// 结束计时
+    pub fn finish(&mut self) {
+        self.end_time = Some(std::time::Instant::now());
+    }
+    
+    /// 获取处理耗时
+    pub fn elapsed(&self) -> Option<std::time::Duration> {
+        match (self.start_time, self.end_time) {
+            (Some(start), Some(end)) => Some(end.duration_since(start)),
+            (Some(start), None) => Some(start.elapsed()),
+            _ => None,
+        }
+    }
+    
+    /// 格式化字节大小为人类可读格式
+    fn format_bytes(bytes: u64) -> String {
+        const UNITS: &[&str] = &["B", "KB", "MB", "GB", "TB"];
+        if bytes == 0 {
+            return "0 B".to_string();
+        }
+        let exp = (bytes as f64).log(1024.0).min(UNITS.len() as f64 - 1.0) as usize;
+        let value = bytes as f64 / 1024_f64.powi(exp as i32);
+        if exp == 0 {
+            format!("{} {}", bytes, UNITS[exp])
+        } else {
+            format!("{:.2} {}", value, UNITS[exp])
+        }
+    }
+    
+    /// 格式化耗时为人类可读格式
+    fn format_duration(duration: std::time::Duration) -> String {
+        let secs = duration.as_secs();
+        let millis = duration.subsec_millis();
+        
+        if secs >= 60 {
+            let mins = secs / 60;
+            let remaining_secs = secs % 60;
+            format!("{}分{}秒", mins, remaining_secs)
+        } else if secs > 0 {
+            format!("{}.{:03}秒", secs, millis)
+        } else {
+            format!("{}毫秒", millis)
+        }
+    }
+    
     pub fn print_summary(&self) {
+        let elapsed = self.elapsed();
+        
         println!("\n========================================");
         println!("处理完成");
         println!("========================================");
-        println!("  总计: {}", self.total);
-        println!("  ✓ 成功: {}", self.success);
+        
+        // 文件统计
+        println!("📁 文件统计:");
+        println!("   总计: {} 个文件", self.total);
+        println!("   ✓ 成功: {} 个文件", self.success);
         if self.skipped > 0 {
-            println!("  ⊘ 跳过: {}", self.skipped);
+            println!("   ⊘ 跳过: {} 个文件", self.skipped);
         }
         if self.failed > 0 {
-            println!("  ✗ 失败: {}", self.failed);
+            println!("   ✗ 失败: {} 个文件", self.failed);
         }
+        
+        // 时间统计
+        if let Some(duration) = elapsed {
+            println!("\n⏱️  时间统计:");
+            println!("   总耗时: {}", Self::format_duration(duration));
+            if self.total > 0 {
+                let secs = duration.as_secs_f64();
+                let files_per_sec = self.total as f64 / secs;
+                let ms_per_file = secs * 1000.0 / self.total as f64;
+                println!("   处理速度: {:.1} 文件/秒", files_per_sec);
+                println!("   平均耗时: {:.1} 毫秒/文件", ms_per_file);
+            }
+        }
+        
+        // 大小统计
+        if self.total_output_bytes > 0 {
+            println!("\n💾 大小统计:");
+            println!("   输出总大小: {}", Self::format_bytes(self.total_output_bytes));
+            if self.total > 0 {
+                let avg_size = self.total_output_bytes / self.total as u64;
+                println!("   平均大小: {}/文件", Self::format_bytes(avg_size));
+            }
+            if self.total_input_bytes > 0 {
+                let ratio = self.total_output_bytes as f64 / self.total_input_bytes as f64 * 100.0;
+                println!("   压缩率: {:.1}%", ratio);
+            }
+        }
+        
         println!("========================================");
     }
 }

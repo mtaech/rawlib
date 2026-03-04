@@ -9,9 +9,11 @@
 
 pub mod ffi;
 pub mod raw_processor;
+pub mod parallel;
 
 // Public exports
 pub use raw_processor::{RawProcessor, ThumbnailData, ImageFormat, RawError};
+pub use parallel::{ParallelProcessor, ProcessResult, ParallelConfig};
 
 #[cfg(test)]
 mod tests {

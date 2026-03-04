@@ -116,8 +116,11 @@ impl RawProcessor {
     /// `Err(RawError)` - 初始化失败时的错误信息
     ///
     /// # 示例
-    /// ```rust
+    /// ```no_run
+    /// use rawlib::RawProcessor;
+    /// 
     /// let processor = RawProcessor::new()?;
+    /// # Ok::<(), rawlib::RawError>(())
     /// ```
     pub fn new() -> Result<Self> {
         // 调用 LibRaw C API 初始化实例
