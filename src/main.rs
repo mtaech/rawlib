@@ -103,6 +103,20 @@ struct Cli {
     )]
     format: String,
 
+    /// 显示 EXIF 信息（不提取缩略图）
+    #[arg(
+        long = "exif",
+        help = "Show EXIF metadata instead of extracting thumbnail"
+    )]
+    exif: bool,
+
+    /// 以 JSON 格式输出 EXIF 信息
+    #[arg(
+        long = "json",
+        help = "Output EXIF data in JSON format (requires --exif)"
+    )]
+    json: bool,
+
     /// RAW 文件扩展名过滤
     #[arg(
         long = "extensions",
@@ -121,6 +135,12 @@ fn main() {
 
     // 解析 CLI 参数
     let cli = Cli::parse();
+    
+    // 检查是否是 EXIF 模式
+    if cli.exif {
+        run_exif_mode(&cli);
+        return;
+    }
     
     info!("Starting rawlib thumbnail extractor v{}", env!("CARGO_PKG_VERSION"));
     
@@ -149,6 +169,196 @@ fn main() {
             process::exit(1);
         }
     }
+}
+
+/// Run EXIF extraction mode
+fn run_exif_mode(cli: &Cli) {
+    use rawlib::exif::{extract_exif, extract_exif_parallel};
+    
+    // Collect input files
+    let files = collect_input_files(&cli.inputs, cli.recursive, &cli.extensions);
+    
+    if files.is_empty() {
+        eprintln!("错误: 未找到 RAW 文件");
+        process::exit(1);
+    }
+    
+    if cli.json {
+        println!("[");
+    }
+    
+    let results = if files.len() == 1 || cli.jobs == Some(1) {
+        // Sequential processing
+        files.iter()
+            .map(|f| (f.clone(), extract_exif(f)))
+            .collect::<Vec<_>>()
+    } else {
+        // Parallel processing
+        extract_exif_parallel(&files, cli.jobs)
+    };
+    
+    let mut first = true;
+    for (path, result) in results {
+        if cli.json {
+            if !first {
+                println!(",");
+            }
+            first = false;
+            match result {
+                Ok(exif) => {
+                    print_exif_json(&path, &exif);
+                }
+                Err(e) => {
+                    println!("  {{\"path\": {:?}, \"error\": {:?}}}", path.display(), e.to_string());
+                }
+            }
+        } else {
+            match result {
+                Ok(exif) => {
+                    println!("\n{}:", path.display());
+                    print_exif_human(&exif);
+                }
+                Err(e) => {
+                    eprintln!("✗ {}: {}", path.display(), e);
+                }
+            }
+        }
+    }
+    
+    if cli.json {
+        println!("\n]");
+    }
+}
+
+/// Print EXIF data in human-readable format
+fn print_exif_human(exif: &rawlib::exif::ExifData) {
+    if let Some(ref make) = exif.make {
+        println!("  相机厂商: {}", make);
+    }
+    if let Some(ref model) = exif.model {
+        println!("  相机型号: {}", model);
+    }
+    if let Some(ref lens) = exif.lens_model {
+        println!("  镜头型号: {}", lens);
+    }
+    if let Some(ref date) = exif.date_time_original {
+        println!("  拍摄时间: {}", date);
+    }
+    if let Some(ref exp) = exif.exposure_time {
+        println!("  快门速度: {}", exp);
+    }
+    if let Some(ref fnum) = exif.f_number {
+        println!("  光圈: {}", fnum);
+    }
+    if let Some(iso) = exif.iso {
+        println!("  ISO: {}", iso);
+    }
+    if let Some(ref focal) = exif.focal_length {
+        println!("  焦距: {}", focal);
+    }
+    if let (Some(w), Some(h)) = (exif.image_width, exif.image_height) {
+        println!("  图像尺寸: {}x{}", w, h);
+    }
+    if exif.has_gps() {
+        if let Some((lat, lon)) = exif.gps_coordinates() {
+            println!("  GPS: {:.6}, {:.6}", lat, lon);
+        }
+    }
+}
+
+/// Print EXIF data in JSON format
+fn print_exif_json(path: &std::path::Path, exif: &rawlib::exif::ExifData) {
+    use std::fmt::Write;
+    
+    let mut json = String::new();
+    write!(&mut json, "  {{\"path\": {:?}", path.display()).unwrap();
+    
+    if let Some(ref make) = exif.make {
+        write!(&mut json, ", \"make\": {:?}", make).unwrap();
+    }
+    if let Some(ref model) = exif.model {
+        write!(&mut json, ", \"model\": {:?}", model).unwrap();
+    }
+    if let Some(ref lens) = exif.lens_model {
+        write!(&mut json, ", \"lens_model\": {:?}", lens).unwrap();
+    }
+    if let Some(ref date) = exif.date_time_original {
+        write!(&mut json, ", \"date_time\": {:?}", date).unwrap();
+    }
+    if let Some(ref exp) = exif.exposure_time {
+        write!(&mut json, ", \"exposure_time\": {:?}", exp).unwrap();
+    }
+    if let Some(ref fnum) = exif.f_number {
+        write!(&mut json, ", \"f_number\": {:?}", fnum).unwrap();
+    }
+    if let Some(iso) = exif.iso {
+        write!(&mut json, ", \"iso\": {}", iso).unwrap();
+    }
+    if let Some(ref focal) = exif.focal_length {
+        write!(&mut json, ", \"focal_length\": {:?}", focal).unwrap();
+    }
+    if let (Some(w), Some(h)) = (exif.image_width, exif.image_height) {
+        write!(&mut json, ", \"width\": {}, \"height\": {}", w, h).unwrap();
+    }
+    if let Some((lat, lon)) = exif.gps_coordinates() {
+        write!(&mut json, ", \"gps_latitude\": {}, \"gps_longitude\": {}", lat, lon).unwrap();
+    }
+    
+    json.push_str("}");
+    print!("{}", json);
+}
+
+/// Collect input files from paths
+fn collect_input_files(
+    inputs: &[String],
+    recursive: bool,
+    extensions: &[String],
+) -> Vec<std::path::PathBuf> {
+    use walkdir::WalkDir;
+    
+    let mut files = Vec::new();
+    let extensions_lower: Vec<String> = extensions
+        .iter()
+        .map(|e| e.to_lowercase())
+        .collect();
+    
+    for input in inputs {
+        let path = std::path::Path::new(input);
+        
+        if !path.exists() {
+            continue;
+        }
+        
+        if path.is_file() {
+            if is_raw_file(path, &extensions_lower) {
+                files.push(path.to_path_buf());
+            }
+        } else if path.is_dir() {
+            let walker = if recursive {
+                WalkDir::new(path).follow_links(false)
+            } else {
+                WalkDir::new(path).max_depth(1).follow_links(false)
+            };
+            
+            for entry in walker.into_iter().filter_map(|e| e.ok()) {
+                if entry.file_type().is_file() {
+                    let file_path = entry.path();
+                    if is_raw_file(file_path, &extensions_lower) {
+                        files.push(file_path.to_path_buf());
+                    }
+                }
+            }
+        }
+    }
+    
+    files
+}
+
+fn is_raw_file(path: &std::path::Path, extensions: &[String]) -> bool {
+    path.extension()
+        .and_then(|ext| ext.to_str())
+        .map(|ext| extensions.contains(&ext.to_lowercase()))
+        .unwrap_or(false)
 }
 
 

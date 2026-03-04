@@ -10,10 +10,12 @@
 pub mod ffi;
 pub mod raw_processor;
 pub mod parallel;
+pub mod exif;
 
 // Public exports
 pub use raw_processor::{RawProcessor, ThumbnailData, ImageFormat, RawError};
 pub use parallel::{ParallelProcessor, ProcessResult, ParallelConfig};
+pub use exif::{ExifData, ExifError, extract_exif, extract_exif_parallel};
 
 #[cfg(test)]
 mod tests {

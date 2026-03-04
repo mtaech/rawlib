@@ -88,6 +88,8 @@ rawlib photo.NEF -v
   -f, --format <格式>       输出格式 [可选值: auto, jpg, jpeg, bmp]
       --extensions <扩展名>  指定 RAW 文件扩展名（逗号分隔）
   -j, --jobs <N>            并行工作线程数（默认：CPU核心数）
+      --exif                显示 EXIF 元数据（不提取缩略图）
+      --json                以 JSON 格式输出 EXIF 信息
   -h, --help                显示帮助信息
   -V, --version             显示版本信息
 ```
@@ -135,7 +137,53 @@ rawlib ./photos/ -r --progress -j 8
 rawlib ./photos/ -j 1
 ```
 
-**进度显示示例**：
+#### 3. 查看 EXIF 元数据
+
+```bash
+# 显示单个文件的 EXIF 信息
+rawlib photo.NEF --exif
+
+# 批量显示目录中所有 RAW 文件的 EXIF
+rawlib ./photos/ --exif
+
+# 以 JSON 格式输出（便于程序处理）
+rawlib photo.NEF --exif --json
+
+# 递归导出所有文件的 EXIF 为 JSON
+rawlib ./photos/ -r --exif --json > exif_data.json
+```
+
+**EXIF 输出示例**：
+```
+photo.NEF:
+  相机厂商: NIKON CORPORATION
+  相机型号: NIKON D850
+  镜头型号: 70-200mm f/2.8
+  拍摄时间: 2024:03:15 14:30:25
+  快门速度: 1/500
+  光圈: f/2.8
+  ISO: 400
+  焦距: 135.0 mm
+  图像尺寸: 8256x5504
+```
+
+#### 4. 文件冲突处理
+
+```bash
+# 跳过已存在的文件（默认）
+rawlib ./photos/ --overwrite skip
+
+# 覆盖已存在的文件
+rawlib ./photos/ --overwrite overwrite
+
+# 自动重命名（photo.jpg → photo_1.jpg → photo_2.jpg）
+rawlib ./photos/ --overwrite rename
+```
+
+#### 5. 中文路径支持
+
+```bash
+# 完美支持中文路径和文件名
 ```
 提取缩略图: [████████████████████] 158/158 (100%)
 ✓ 成功: 158 个文件
@@ -371,6 +419,35 @@ fn main() {
 }
 ```
 
+**EXIF 元数据提取**：
+```rust
+use rawlib::exif::{extract_exif, extract_exif_parallel};
+use std::path::PathBuf;
+
+fn main() {
+    // 提取单个文件的 EXIF
+    let exif = extract_exif("photo.NEF").unwrap();
+    println!("相机: {:?}", exif.model);
+    println!("ISO: {:?}", exif.iso);
+    println!("拍摄时间: {:?}", exif.date_time_original);
+    
+    // 批量并行提取 EXIF
+    let files = vec![
+        PathBuf::from("photo1.NEF"),
+        PathBuf::from("photo2.CR2"),
+    ];
+    
+    let results = extract_exif_parallel(&files, None);
+    
+    for (path, result) in &results {
+        match result {
+            Ok(exif) => println!("{}: {:?}", path.display(), exif.summary()),
+            Err(e) => println!("{}: error - {}", path.display(), e),
+        }
+    }
+}
+```
+
 详细 API 文档请参考 [docs.rs/rawlib](https://docs.rs/rawlib)
 
 ### 从源码编译
@@ -424,11 +501,11 @@ LibRaw 库采用 LGPL-2.1 或 CDDL-1.0 许可证。
 ## 🗺 路线图
 
 - [x] 多线程并行处理
+- [x] 支持从 RAW 文件提取元数据（EXIF）
 - [ ] 支持批量调整缩略图尺寸
 - [ ] 支持输出 WebP 格式
 - [ ] 添加 GUI 图形界面
 - [ ] macOS 和 Linux 支持
-- [ ] 支持从 RAW 文件提取元数据（EXIF）
 
 ## 📊 项目结构
 
