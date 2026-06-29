@@ -89,9 +89,6 @@ pub struct Config {
     /// 覆盖策略
     pub overwrite_policy: OverwritePolicy,
     
-    /// 递归扫描
-    pub recursive: bool,
-    
     /// 输出详细程度
     pub verbosity: Verbosity,
     
@@ -100,9 +97,6 @@ pub struct Config {
     
     /// 输出格式
     pub format: OutputFormat,
-    
-    /// 允许的文件扩展名
-    pub extensions: Vec<String>,
     
     /// 并行工作线程数 (None 表示使用 CPU 核心数)
     pub jobs: Option<usize>,
@@ -153,11 +147,9 @@ impl Config {
             output,
             mode,
             overwrite_policy,
-            recursive: cli.recursive,
             verbosity,
             show_progress: cli.progress,
             format,
-            extensions: cli.extensions,
             jobs: cli.jobs,
         })
     }
@@ -290,7 +282,7 @@ pub fn run(config: Config) -> Result<ProcessStats> {
 }
 
 /// 收集输入文件
-fn collect_input_files(
+pub(crate) fn collect_input_files(
     inputs: &[String],
     recursive: bool,
     extensions: &[String],
@@ -346,7 +338,7 @@ fn collect_input_files(
 }
 
 /// 检查是否为 RAW 文件
-fn is_raw_file(path: &Path, extensions: &[String]) -> bool {
+pub(crate) fn is_raw_file(path: &Path, extensions: &[String]) -> bool {
     path.extension()
         .and_then(|ext| ext.to_str())
         .map(|ext| extensions.contains(&ext.to_lowercase()))

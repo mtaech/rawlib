@@ -174,17 +174,28 @@ fn main() {
 /// Run EXIF extraction mode
 fn run_exif_mode(cli: &Cli) {
     use rawlib::exif::{extract_exif, extract_exif_parallel};
+    use serde_json::json;
+    use cli::Verbosity;
     
     // Collect input files
-    let files = collect_input_files(&cli.inputs, cli.recursive, &cli.extensions);
+    let verbosity = if cli.quiet {
+        Verbosity::Quiet
+    } else if cli.verbose {
+        Verbosity::Verbose
+    } else {
+        Verbosity::Normal
+    };
+    let files = match cli::collect_input_files(&cli.inputs, cli.recursive, &cli.extensions, verbosity) {
+        Ok(f) => f,
+        Err(e) => {
+            eprintln!("错误: {}", e);
+            process::exit(1);
+        }
+    };
     
     if files.is_empty() {
         eprintln!("错误: 未找到 RAW 文件");
         process::exit(1);
-    }
-    
-    if cli.json {
-        println!("[");
     }
     
     let results = if files.len() == 1 || cli.jobs == Some(1) {
@@ -197,22 +208,19 @@ fn run_exif_mode(cli: &Cli) {
         extract_exif_parallel(&files, cli.jobs)
     };
     
-    let mut first = true;
-    for (path, result) in results {
-        if cli.json {
-            if !first {
-                println!(",");
-            }
-            first = false;
+    if cli.json {
+        let json_results: Vec<serde_json::Value> = results.iter().map(|(path, result)| {
             match result {
-                Ok(exif) => {
-                    print_exif_json(&path, &exif);
-                }
-                Err(e) => {
-                    println!("  {{\"path\": {:?}, \"error\": {:?}}}", path.display(), e.to_string());
-                }
+                Ok(exif) => build_exif_json(path, exif),
+                Err(e) => json!({
+                    "path": path.display().to_string(),
+                    "error": e.to_string(),
+                }),
             }
-        } else {
+        }).collect();
+        println!("{}", serde_json::to_string_pretty(&json_results).unwrap());
+    } else {
+        for (path, result) in results {
             match result {
                 Ok(exif) => {
                     println!("\n{}:", path.display());
@@ -223,10 +231,6 @@ fn run_exif_mode(cli: &Cli) {
                 }
             }
         }
-    }
-    
-    if cli.json {
-        println!("\n]");
     }
 }
 
@@ -266,100 +270,33 @@ fn print_exif_human(exif: &rawlib::exif::ExifData) {
     }
 }
 
-/// Print EXIF data in JSON format
-fn print_exif_json(path: &std::path::Path, exif: &rawlib::exif::ExifData) {
-    use std::fmt::Write;
+/// Build EXIF data as a JSON Value (uses serde_json for proper escaping)
+fn build_exif_json(path: &std::path::Path, exif: &rawlib::exif::ExifData) -> serde_json::Value {
+    use serde_json::{json, Map, Value};
     
-    let mut json = String::new();
-    write!(&mut json, "  {{\"path\": {:?}", path.display()).unwrap();
+    let mut m = Map::new();
+    m.insert("path".into(), json!(path.display().to_string()));
     
-    if let Some(ref make) = exif.make {
-        write!(&mut json, ", \"make\": {:?}", make).unwrap();
-    }
-    if let Some(ref model) = exif.model {
-        write!(&mut json, ", \"model\": {:?}", model).unwrap();
-    }
-    if let Some(ref lens) = exif.lens_model {
-        write!(&mut json, ", \"lens_model\": {:?}", lens).unwrap();
-    }
-    if let Some(ref date) = exif.date_time_original {
-        write!(&mut json, ", \"date_time\": {:?}", date).unwrap();
-    }
-    if let Some(ref exp) = exif.exposure_time {
-        write!(&mut json, ", \"exposure_time\": {:?}", exp).unwrap();
-    }
-    if let Some(ref fnum) = exif.f_number {
-        write!(&mut json, ", \"f_number\": {:?}", fnum).unwrap();
-    }
-    if let Some(iso) = exif.iso {
-        write!(&mut json, ", \"iso\": {}", iso).unwrap();
-    }
-    if let Some(ref focal) = exif.focal_length {
-        write!(&mut json, ", \"focal_length\": {:?}", focal).unwrap();
-    }
+    if let Some(ref v) = exif.make { m.insert("make".into(), json!(v)); }
+    if let Some(ref v) = exif.model { m.insert("model".into(), json!(v)); }
+    if let Some(ref v) = exif.lens_model { m.insert("lens_model".into(), json!(v)); }
+    if let Some(ref v) = exif.date_time_original { m.insert("date_time".into(), json!(v)); }
+    if let Some(ref v) = exif.exposure_time { m.insert("exposure_time".into(), json!(v)); }
+    if let Some(ref v) = exif.f_number { m.insert("f_number".into(), json!(v)); }
+    if let Some(iso) = exif.iso { m.insert("iso".into(), json!(iso)); }
+    if let Some(ref v) = exif.focal_length { m.insert("focal_length".into(), json!(v)); }
     if let (Some(w), Some(h)) = (exif.image_width, exif.image_height) {
-        write!(&mut json, ", \"width\": {}, \"height\": {}", w, h).unwrap();
+        m.insert("width".into(), json!(w));
+        m.insert("height".into(), json!(h));
     }
     if let Some((lat, lon)) = exif.gps_coordinates() {
-        write!(&mut json, ", \"gps_latitude\": {}, \"gps_longitude\": {}", lat, lon).unwrap();
+        m.insert("gps_latitude".into(), json!(lat));
+        m.insert("gps_longitude".into(), json!(lon));
     }
     
-    json.push_str("}");
-    print!("{}", json);
+    Value::Object(m)
 }
 
-/// Collect input files from paths
-fn collect_input_files(
-    inputs: &[String],
-    recursive: bool,
-    extensions: &[String],
-) -> Vec<std::path::PathBuf> {
-    use walkdir::WalkDir;
-    
-    let mut files = Vec::new();
-    let extensions_lower: Vec<String> = extensions
-        .iter()
-        .map(|e| e.to_lowercase())
-        .collect();
-    
-    for input in inputs {
-        let path = std::path::Path::new(input);
-        
-        if !path.exists() {
-            continue;
-        }
-        
-        if path.is_file() {
-            if is_raw_file(path, &extensions_lower) {
-                files.push(path.to_path_buf());
-            }
-        } else if path.is_dir() {
-            let walker = if recursive {
-                WalkDir::new(path).follow_links(false)
-            } else {
-                WalkDir::new(path).max_depth(1).follow_links(false)
-            };
-            
-            for entry in walker.into_iter().filter_map(|e| e.ok()) {
-                if entry.file_type().is_file() {
-                    let file_path = entry.path();
-                    if is_raw_file(file_path, &extensions_lower) {
-                        files.push(file_path.to_path_buf());
-                    }
-                }
-            }
-        }
-    }
-    
-    files
-}
-
-fn is_raw_file(path: &std::path::Path, extensions: &[String]) -> bool {
-    path.extension()
-        .and_then(|ext| ext.to_str())
-        .map(|ext| extensions.contains(&ext.to_lowercase()))
-        .unwrap_or(false)
-}
 
 
 #[cfg(test)]
@@ -368,6 +305,7 @@ mod test{
     use std::path::Path;
     
     #[test]
+    #[ignore = "需要真实的 RAW 文件路径，适合手动运行验证"]
     pub fn img(){
         // 使用原始字符串字面量，避免转义问题
         let test_file = r"C:\Users\huang\图片\2025\2025-11-30\DSC_5432.NEF";

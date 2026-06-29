@@ -35,20 +35,6 @@ pub enum Error {
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 
-    /// 文件不存在错误
-    ///
-    /// 当指定的文件路径不存在时返回。
-    /// 包含具体的文件路径信息以便调试。
-    #[error("File not found: {path}")]
-    FileNotFound { path: PathBuf },
-
-    /// 无效的文件扩展名错误
-    ///
-    /// 当文件的扩展名不在支持的 RAW 格式列表中时返回。
-    /// 这通常用于用户输入验证。
-    #[error("Invalid file extension: {path}")]
-    InvalidExtension { path: PathBuf },
-
     /// 没有找到 RAW 文件
     ///
     /// 在批量处理模式中，当指定的目录中没有找到任何 RAW 文件时返回。

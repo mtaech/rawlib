@@ -58,7 +58,7 @@ fn main() {
     // Linux/Mac 平台 - 优先使用系统库，如果没有则使用 bundled GNU 库
     else {
         // 1. 首先尝试使用 pkg-config 查找系统 libraw
-        if std::process::Command::new("pkg-config").arg("--exists").arg("libraw").status().is_ok() {
+        if std::process::Command::new("pkg-config").arg("--exists").arg("libraw").status().map(|s| s.success()).unwrap_or(false) {
             eprintln!("Using system libraw via pkg-config");
             println!("cargo:rustc-link-lib=dylib=raw");
             println!("cargo:rustc-link-lib=dylib=stdc++");
@@ -70,7 +70,12 @@ fn main() {
             println!("cargo:rustc-link-lib=dylib=raw");
             println!("cargo:rustc-link-lib=dylib=stdc++");
         }
-        // 3. 最后回退到 bundled GNU 库
+        // 3. 尝试在系统路径中查找版本化的 .so 文件（如 libraw.so.25）
+        else if try_link_versioned_libraw("/usr/lib64") || try_link_versioned_libraw("/usr/lib") {
+            eprintln!("Using system libraw via versioned .so file");
+            println!("cargo:rustc-link-lib=dylib=stdc++");
+        }
+    // 4. 最后回退到 bundled GNU 库
         else {
             let lib_dir = PathBuf::from(&manifest_dir).join("libraw").join("gnu").join("lib");
             eprintln!("System libraw not found, using bundled GNU libraries");
@@ -98,4 +103,46 @@ fn main() {
 
     // 监听构建脚本本身的变化
     println!("cargo:rerun-if-changed=build.rs");
+}
+
+/// 尝试在指定目录中查找版本化的 libraw.so 文件（如 libraw.so.25）
+/// 如果找到，创建 libraw.so 符号链接到 OUT_DIR 供链接器使用
+fn try_link_versioned_libraw(dir: &str) -> bool {
+    let dir_path = std::path::Path::new(dir);
+    if !dir_path.is_dir() {
+        return false;
+    }
+
+    // 遍历目录，查找 libraw.so.X 文件
+    let found = match std::fs::read_dir(dir_path) {
+        Ok(entries) => entries
+            .filter_map(|e| e.ok())
+            .find(|e| {
+                let name = e.file_name();
+                let name = name.to_string_lossy();
+                name.starts_with("libraw.so.") && name[10..].chars().all(|c| c.is_ascii_digit() || c == '.')
+            }),
+        Err(_) => None,
+    };
+
+    if let Some(entry) = found {
+        let so_path = entry.path();
+        eprintln!("Found versioned libraw: {}", so_path.display());
+
+        // 在 OUT_DIR 中创建 libraw.so 符号链接
+        let out_dir = std::path::PathBuf::from(env::var("OUT_DIR").unwrap());
+        let symlink_path = out_dir.join("libraw.so");
+        let _ = std::fs::remove_file(&symlink_path);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs;
+            if fs::symlink(&so_path, &symlink_path).is_ok() {
+                println!("cargo:rustc-link-search=native={}", out_dir.display());
+                println!("cargo:rustc-link-lib=dylib=raw");
+                return true;
+            }
+        }
+    }
+
+    false
 }

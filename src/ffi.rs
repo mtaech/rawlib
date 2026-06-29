@@ -41,11 +41,6 @@ pub struct libraw_processed_image_t {
     pub data: [c_uchar; 1],
 }
 
-// 链接配置：根据目标平台选择不同的库名称
-// Windows MSVC 使用 libraw_static 静态库
-#[cfg_attr(all(target_os = "windows", target_env = "msvc"), link(name = "libraw_static", kind = "static"))]
-// 其他平台使用 raw 静态库（如果可用）或动态库
-#[cfg_attr(not(all(target_os = "windows", target_env = "msvc")), link(name = "raw", kind = "static"))]
 extern "C" {
     // === 库版本信息 ===
     /// 获取 LibRaw 版本字符串
@@ -106,57 +101,10 @@ extern "C" {
 /// 无特殊选项
 pub const LIBRAW_OPTIONS_NONE: c_int = 0;
 
-/// 禁用内存错误回调
-pub const LIBRAW_OPIONS_NO_MEMERR_CALLBACK: c_int = 1;
-
-/// 禁用数据错误回调
-pub const LIBRAW_OPIONS_NO_DATAERR_CALLBACK: c_int = 1 << 1;
 
 // === LibRaw 返回代码常量 ===
 /// 操作成功
 pub const LIBRAW_SUCCESS: c_int = 0;
-
-/// 未指定错误
-pub const LIBRAW_UNSPECIFIED_ERROR: c_int = -1;
-
-/// 不支持的文件格式
-pub const LIBRAW_FILE_UNSUPPORTED: c_int = -2;
-
-/// 请求不存在的图像
-pub const LIBRAW_REQUEST_FOR_NONEXISTENT_IMAGE: c_int = -3;
-
-/// 函数调用顺序错误
-pub const LIBRAW_OUT_OF_ORDER_CALL: c_int = -4;
-
-/// 没有缩略图
-pub const LIBRAW_NO_THUMBNAIL: c_int = -5;
-
-/// 不支持的缩略图格式
-pub const LIBRAW_UNSUPPORTED_THUMBNAIL: c_int = -6;
-
-/// 输入已关闭
-pub const LIBRAW_INPUT_CLOSED: c_int = -7;
-
-/// 内存不足
-pub const LIBRAW_INSUFFICIENT_MEMORY: c_int = -100;
-
-/// 数据错误（损坏的文件）
-pub const LIBRAW_DATA_ERROR: c_int = -101;
-
-/// I/O 错误（读写失败）
-pub const LIBRAW_IO_ERROR: c_int = -102;
-
-/// 操作被回调取消
-pub const LIBRAW_CANCELLED_BY_CALLBACK: c_int = -103;
-
-/// 错误的裁剪参数
-pub const LIBRAW_BAD_CROP: c_int = -104;
-
-/// 图像太大
-pub const LIBRAW_TOO_BIG: c_int = -105;
-
-/// 内存池溢出
-pub const LIBRAW_MEMPOOL_OVERFLOW: c_int = -106;
 
 // === 图像格式常量 ===
 /// JPEG 格式图像
