@@ -22,9 +22,9 @@ use std::path::Path;
 #[derive(Debug, Clone)]
 pub struct RawError {
     /// LibRaw 错误代码
-    code: i32,
+    pub code: i32,
     /// 错误描述信息
-    message: String,
+    pub message: String,
 }
 
 impl fmt::Display for RawError {
@@ -316,7 +316,9 @@ impl RawProcessor {
             // SAFETY: data field is a flexible array member, 
             // actual size is data_size bytes
             let data_ptr = img.data.as_ptr();
-            let mut data = vec![0u8; data_size];
+            let mut data = Vec::with_capacity(data_size);
+            // SAFETY: data 的容量为 data_size，紧随其后会被 copy_nonoverlapping 完全填充
+            data.set_len(data_size);
             std::ptr::copy_nonoverlapping(data_ptr, data.as_mut_ptr(), data_size);
             
             ThumbnailData {
@@ -403,13 +405,3 @@ impl Drop for RawProcessor {
 /// 在不同线程之间传递（只要不在多个线程中同时使用同一个实例）。
 /// Send trait 允许我们将 RawProcessor 实例发送到其他线程。
 unsafe impl Send for RawProcessor {}
-
-/// 默认构造函数实现
-///
-/// 提供了默认构造函数，使 RawProcessor 可以更容易地在需要默认值的
-/// 场景中使用。如果创建失败，会 panic，因为这是默认实现的一部分。
-impl Default for RawProcessor {
-    fn default() -> Self {
-        Self::new().expect("Failed to create RawProcessor")
-    }
-}

@@ -14,7 +14,7 @@ pub mod exif;
 
 // Public exports
 pub use raw_processor::{RawProcessor, ThumbnailData, ImageFormat, RawError};
-pub use parallel::{ParallelProcessor, ProcessResult, ParallelConfig};
+pub use parallel::{ParallelProcessor, ProcessResult, ParallelConfig, ProcessingStats, process_files_parallel};
 pub use exif::{ExifData, ExifError, extract_exif, extract_exif_parallel};
 
 #[cfg(test)]
@@ -75,4 +75,37 @@ pub fn extract_thumbnail<P: AsRef<std::path::Path>>(path: P) -> Result<Vec<u8>, 
 /// ```
 pub fn extract_thumbnail_with_info<P: AsRef<std::path::Path>>(path: P) -> Result<ThumbnailData, RawError> {
     RawProcessor::extract_thumbnail(path)
+}
+
+/// Convenience function to extract thumbnail and write directly to a file
+///
+/// This combines `extract_thumbnail` and `std::fs::write` in one call.
+///
+/// # Arguments
+///
+/// * `input` - Path to the RAW file
+/// * `output` - Path to save the thumbnail image
+///
+/// # Returns
+///
+/// Returns the number of bytes written on success
+///
+/// # Example
+///
+/// ```no_run
+/// use rawlib::extract_thumbnail_to_file;
+///
+/// let bytes_written = extract_thumbnail_to_file("photo.cr2", "thumb.jpg").unwrap();
+/// println!("Saved {} bytes", bytes_written);
+/// ```
+pub fn extract_thumbnail_to_file<P: AsRef<std::path::Path>, Q: AsRef<std::path::Path>>(
+    input: P,
+    output: Q,
+) -> Result<usize, RawError> {
+    let data = extract_thumbnail(input)?;
+    std::fs::write(output.as_ref(), &data).map_err(|e| RawError {
+        code: -1,
+        message: format!("Failed to write thumbnail: {}", e),
+    })?;
+    Ok(data.len())
 }

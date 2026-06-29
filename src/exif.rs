@@ -7,10 +7,12 @@ use std::path::Path;
 use std::collections::HashMap;
 
 // Re-export exif crate types
-use exif::{Reader, Tag, Value, Exif as ExifReaderData};
+use exif::{Reader, Tag, Value};
+
+use serde::Serialize;
 
 /// EXIF data container
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize)]
 pub struct ExifData {
     /// Camera make (e.g., "NIKON CORPORATION")
     pub make: Option<String>,
@@ -41,6 +43,7 @@ pub struct ExifData {
     /// GPS altitude
     pub gps_altitude: Option<f64>,
     /// All EXIF fields as key-value pairs
+    #[serde(skip)]
     pub raw_fields: HashMap<String, String>,
 }
 
@@ -184,39 +187,11 @@ pub fn extract_exif<P: AsRef<Path>>(path: P) -> Result<ExifData, ExifError> {
                     data.orientation = Some(o);
                 }
             }
-            _ => {}
-        }
-    }
-
-    // Try to extract GPS info
-    if let Ok(gps) = extract_gps_info(&exif) {
-        data.gps_latitude = gps.latitude;
-        data.gps_longitude = gps.longitude;
-        data.gps_altitude = gps.altitude;
-    }
-
-    data.raw_fields = raw_fields;
-    Ok(data)
-}
-
-/// GPS information structure
-#[derive(Debug, Clone, Default)]
-pub struct GpsInfo {
-    pub latitude: Option<(f64, f64, f64)>,
-    pub longitude: Option<(f64, f64, f64)>,
-    pub altitude: Option<f64>,
-}
-
-fn extract_gps_info(exif: &ExifReaderData) -> Result<GpsInfo, ExifError> {
-    let mut gps = GpsInfo::default();
-
-    for field in exif.fields() {
-        match field.tag {
             Tag::GPSLatitude => {
-                gps.latitude = parse_gps_coordinate(&field.value);
+                data.gps_latitude = parse_gps_coordinate(&field.value);
             }
             Tag::GPSLongitude => {
-                gps.longitude = parse_gps_coordinate(&field.value);
+                data.gps_longitude = parse_gps_coordinate(&field.value);
             }
             Tag::GPSAltitude => {
                 if let Value::Rational(ref r) = field.value {
@@ -224,7 +199,7 @@ fn extract_gps_info(exif: &ExifReaderData) -> Result<GpsInfo, ExifError> {
                         let num = rat.num as f64;
                         let den = rat.denom as f64;
                         if den != 0.0 {
-                            gps.altitude = Some(num / den);
+                            data.gps_altitude = Some(num / den);
                         }
                     }
                 }
@@ -233,7 +208,8 @@ fn extract_gps_info(exif: &ExifReaderData) -> Result<GpsInfo, ExifError> {
         }
     }
 
-    Ok(gps)
+    data.raw_fields = raw_fields;
+    Ok(data)
 }
 
 fn parse_gps_coordinate(value: &Value) -> Option<(f64, f64, f64)> {

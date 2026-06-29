@@ -39,6 +39,7 @@ fn main() {
     let config = ParallelConfig {
         jobs: Some(4),      // Use exactly 4 threads
         verbose: true,      // Enable verbose output
+        on_progress: None,
     };
 
     let results = ParallelProcessor::process_files(&files, &config);
@@ -108,6 +109,7 @@ fn main() {
         let config = ParallelConfig {
             jobs: Some(8),
             verbose: true,
+            on_progress: None,
         };
         
         let (_results, stats) = ParallelProcessor::process_with_stats(&all_files, &config);

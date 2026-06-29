@@ -5,16 +5,40 @@
 
 use crate::{RawProcessor, ThumbnailData, RawError};
 use rayon::prelude::*;
+use serde::Serialize;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 /// Configuration for parallel processing
-#[derive(Debug, Clone)]
 pub struct ParallelConfig {
     /// Number of parallel jobs (None = use all CPU cores)
     pub jobs: Option<usize>,
     /// Enable verbose output during processing
     pub verbose: bool,
+    /// Optional progress callback: receives (completed_count, total_count)
+    pub on_progress: Option<Arc<dyn Fn(usize, usize) + Send + Sync>>,
+}
+
+impl std::fmt::Debug for ParallelConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ParallelConfig")
+            .field("jobs", &self.jobs)
+            .field("verbose", &self.verbose)
+            .field("on_progress", &self.on_progress.as_ref().map(|_| "<callback>"))
+            .finish()
+    }
+}
+
+impl Clone for ParallelConfig {
+    fn clone(&self) -> Self {
+        Self {
+            jobs: self.jobs.clone(),
+            verbose: self.verbose.clone(),
+            on_progress: self.on_progress.clone(),
+        }
+    }
 }
 
 impl Default for ParallelConfig {
@@ -22,6 +46,7 @@ impl Default for ParallelConfig {
         Self {
             jobs: None,
             verbose: false,
+            on_progress: None,
         }
     }
 }
@@ -62,7 +87,7 @@ impl ProcessResult {
 }
 
 /// Statistics for parallel processing
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Serialize)]
 pub struct ProcessingStats {
     /// Total number of files
     pub total: usize,
@@ -71,6 +96,7 @@ pub struct ProcessingStats {
     /// Number of failed files
     pub failed: usize,
     /// Total processing time
+    #[serde(skip)]
     pub total_elapsed: Duration,
     /// Total input bytes
     pub total_input_bytes: u64,
@@ -126,6 +152,11 @@ impl ParallelProcessor {
             .build()
             .ok();
 
+        // Progress tracking
+        let progress_counter = Arc::new(AtomicUsize::new(0));
+        let on_progress = &config.on_progress;
+        let total = files.len();
+
         // Process files
         let process_fn = |path: &P| {
             let path = path.as_ref();
@@ -138,6 +169,12 @@ impl ParallelProcessor {
 
             // Extract thumbnail
             let result = RawProcessor::extract_thumbnail(path);
+
+            // Report progress
+            let completed = progress_counter.fetch_add(1, Ordering::Relaxed) + 1;
+            if let Some(ref cb) = on_progress {
+                cb(completed, total);
+            }
 
             ProcessResult {
                 path: path.to_path_buf(),
