@@ -10,7 +10,7 @@
 //! - Memory management helpers
 //! - Error code constants and utilities
 
-use libc::{c_char, c_int, c_ushort, c_uchar};
+use libc::{c_char, c_int, c_uchar, c_ushort};
 
 // Windows 平台需要使用宽字符 API
 #[cfg(windows)]
@@ -22,7 +22,7 @@ pub enum libraw_data_t {}
 
 // LibRaw 处理后的图像数据结构
 // 这个结构体表示 LibRaw 解码后的图像数据，包括缩略图和完整图像
-#[repr(C)]  // 确保 C 内存布局兼容性
+#[repr(C)] // 确保 C 内存布局兼容性
 pub struct libraw_processed_image_t {
     /// 图像格式类型 (JPEG = 1, Bitmap = 2)
     pub image_type: c_int,
@@ -82,9 +82,21 @@ extern "C" {
     /// 从缩略图数据创建内存中的图像
     /// errc: 输出参数，接收错误代码
     /// 返回: 指向处理后图像的指针，失败时返回 NULL
-    pub fn libraw_dcraw_make_mem_thumb(data: *mut libraw_data_t, errc: *mut c_int) -> *mut libraw_processed_image_t;
+    pub fn libraw_dcraw_make_mem_thumb(
+        data: *mut libraw_data_t,
+        errc: *mut c_int,
+    ) -> *mut libraw_processed_image_t;
 
     /// 释放由 libraw_dcraw_make_mem_* 分配的内存
+
+    // === 完整图像操作 ===
+    /// 从完整 RAW 数据创建内存中的图像（经过 demosaic、白平衡等处理）
+    /// errc: 输出参数，接收错误代码
+    /// 返回: 指向处理后图像的指针，失败时返回 NULL
+    pub fn libraw_dcraw_make_mem_image(
+        data: *mut libraw_data_t,
+        errc: *mut c_int,
+    ) -> *mut libraw_processed_image_t;
     pub fn libraw_dcraw_clear_mem(img: *mut libraw_processed_image_t);
 
     // === 错误处理 ===
@@ -100,7 +112,6 @@ extern "C" {
 // === LibRaw 初始化标志常量 ===
 /// 无特殊选项
 pub const LIBRAW_OPTIONS_NONE: c_int = 0;
-
 
 // === LibRaw 返回代码常量 ===
 /// 操作成功

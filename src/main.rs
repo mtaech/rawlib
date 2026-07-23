@@ -53,19 +53,11 @@ struct Cli {
     overwrite: String,
 
     /// 递归扫描目录
-    #[arg(
-        short = 'r',
-        long = "recursive",
-        help = "Recursively scan directories"
-    )]
+    #[arg(short = 'r', long = "recursive", help = "Recursively scan directories")]
     recursive: bool,
 
     /// 详细输出模式
-    #[arg(
-        short = 'v',
-        long = "verbose",
-        help = "Show detailed information"
-    )]
+    #[arg(short = 'v', long = "verbose", help = "Show detailed information")]
     verbose: bool,
 
     /// 静默模式
@@ -78,10 +70,7 @@ struct Cli {
     quiet: bool,
 
     /// 显示进度条
-    #[arg(
-        long = "progress",
-        help = "Show progress bar"
-    )]
+    #[arg(long = "progress", help = "Show progress bar")]
     progress: bool,
 
     /// 并行处理的工作线程数
@@ -135,15 +124,18 @@ fn main() {
 
     // 解析 CLI 参数
     let cli = Cli::parse();
-    
+
     // 检查是否是 EXIF 模式
     if cli.exif {
         run_exif_mode(&cli);
         return;
     }
-    
-    info!("Starting rawlib thumbnail extractor v{}", env!("CARGO_PKG_VERSION"));
-    
+
+    info!(
+        "Starting rawlib thumbnail extractor v{}",
+        env!("CARGO_PKG_VERSION")
+    );
+
     // 转换为配置
     let config = match cli::Config::from_cli(cli) {
         Ok(config) => config,
@@ -153,7 +145,7 @@ fn main() {
             process::exit(1);
         }
     };
-    
+
     // 执行处理
     match cli::run(config) {
         Ok(stats) => {
@@ -173,10 +165,10 @@ fn main() {
 
 /// Run EXIF extraction mode
 fn run_exif_mode(cli: &Cli) {
+    use cli::Verbosity;
     use rawlib::exif::{extract_exif, extract_exif_parallel};
     use serde_json::json;
-    use cli::Verbosity;
-    
+
     // Collect input files
     let verbosity = if cli.quiet {
         Verbosity::Quiet
@@ -185,39 +177,42 @@ fn run_exif_mode(cli: &Cli) {
     } else {
         Verbosity::Normal
     };
-    let files = match cli::collect_input_files(&cli.inputs, cli.recursive, &cli.extensions, verbosity) {
-        Ok(f) => f,
-        Err(e) => {
-            eprintln!("错误: {}", e);
-            process::exit(1);
-        }
-    };
-    
+    let files =
+        match cli::collect_input_files(&cli.inputs, cli.recursive, &cli.extensions, verbosity) {
+            Ok(f) => f,
+            Err(e) => {
+                eprintln!("错误: {}", e);
+                process::exit(1);
+            }
+        };
+
     if files.is_empty() {
         eprintln!("错误: 未找到 RAW 文件");
         process::exit(1);
     }
-    
+
     let results = if files.len() == 1 || cli.jobs == Some(1) {
         // Sequential processing
-        files.iter()
+        files
+            .iter()
             .map(|f| (f.clone(), extract_exif(f)))
             .collect::<Vec<_>>()
     } else {
         // Parallel processing
         extract_exif_parallel(&files, cli.jobs)
     };
-    
+
     if cli.json {
-        let json_results: Vec<serde_json::Value> = results.iter().map(|(path, result)| {
-            match result {
+        let json_results: Vec<serde_json::Value> = results
+            .iter()
+            .map(|(path, result)| match result {
                 Ok(exif) => build_exif_json(path, exif),
                 Err(e) => json!({
                     "path": path.display().to_string(),
                     "error": e.to_string(),
                 }),
-            }
-        }).collect();
+            })
+            .collect();
         println!("{}", serde_json::to_string_pretty(&json_results).unwrap());
     } else {
         for (path, result) in results {
@@ -273,18 +268,34 @@ fn print_exif_human(exif: &rawlib::exif::ExifData) {
 /// Build EXIF data as a JSON Value (uses serde_json for proper escaping)
 fn build_exif_json(path: &std::path::Path, exif: &rawlib::exif::ExifData) -> serde_json::Value {
     use serde_json::{json, Map, Value};
-    
+
     let mut m = Map::new();
     m.insert("path".into(), json!(path.display().to_string()));
-    
-    if let Some(ref v) = exif.make { m.insert("make".into(), json!(v)); }
-    if let Some(ref v) = exif.model { m.insert("model".into(), json!(v)); }
-    if let Some(ref v) = exif.lens_model { m.insert("lens_model".into(), json!(v)); }
-    if let Some(ref v) = exif.date_time_original { m.insert("date_time".into(), json!(v)); }
-    if let Some(ref v) = exif.exposure_time { m.insert("exposure_time".into(), json!(v)); }
-    if let Some(ref v) = exif.f_number { m.insert("f_number".into(), json!(v)); }
-    if let Some(iso) = exif.iso { m.insert("iso".into(), json!(iso)); }
-    if let Some(ref v) = exif.focal_length { m.insert("focal_length".into(), json!(v)); }
+
+    if let Some(ref v) = exif.make {
+        m.insert("make".into(), json!(v));
+    }
+    if let Some(ref v) = exif.model {
+        m.insert("model".into(), json!(v));
+    }
+    if let Some(ref v) = exif.lens_model {
+        m.insert("lens_model".into(), json!(v));
+    }
+    if let Some(ref v) = exif.date_time_original {
+        m.insert("date_time".into(), json!(v));
+    }
+    if let Some(ref v) = exif.exposure_time {
+        m.insert("exposure_time".into(), json!(v));
+    }
+    if let Some(ref v) = exif.f_number {
+        m.insert("f_number".into(), json!(v));
+    }
+    if let Some(iso) = exif.iso {
+        m.insert("iso".into(), json!(iso));
+    }
+    if let Some(ref v) = exif.focal_length {
+        m.insert("focal_length".into(), json!(v));
+    }
     if let (Some(w), Some(h)) = (exif.image_width, exif.image_height) {
         m.insert("width".into(), json!(w));
         m.insert("height".into(), json!(h));
@@ -293,23 +304,21 @@ fn build_exif_json(path: &std::path::Path, exif: &rawlib::exif::ExifData) -> ser
         m.insert("gps_latitude".into(), json!(lat));
         m.insert("gps_longitude".into(), json!(lon));
     }
-    
+
     Value::Object(m)
 }
 
-
-
 #[cfg(test)]
-mod test{
+mod test {
     use rawlib::extract_thumbnail;
     use std::path::Path;
-    
+
     #[test]
     #[ignore = "需要真实的 RAW 文件路径，适合手动运行验证"]
-    pub fn img(){
+    pub fn img() {
         // 使用原始字符串字面量，避免转义问题
         let test_file = r"C:\Users\huang\图片\2025\2025-11-30\DSC_5432.NEF";
-        
+
         // 先检查文件是否存在
         if !Path::new(test_file).exists() {
             eprintln!("警告: 测试文件不存在: {}", test_file);
@@ -317,13 +326,12 @@ mod test{
             // 跳过测试而不是失败
             return;
         }
-        
-        let thumb_bytes = extract_thumbnail(test_file)
-            .expect("Extract thumbnail failed.");
+
+        let thumb_bytes = extract_thumbnail(test_file).expect("Extract thumbnail failed.");
 
         // 保存到文件 (使用正确的扩展名，因为通常是 JPEG)
         std::fs::write("./img.jpg", &thumb_bytes).unwrap();
-        
+
         println!("成功提取缩略图，大小: {} 字节", thumb_bytes.len());
     }
 }

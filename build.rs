@@ -20,7 +20,10 @@ fn main() {
 
     // Windows MSVC 平台使用预编译的静态库
     if target.contains("msvc") {
-        let lib_dir = PathBuf::from(&manifest_dir).join("libraw").join("msvc").join("lib");
+        let lib_dir = PathBuf::from(&manifest_dir)
+            .join("libraw")
+            .join("msvc")
+            .join("lib");
         eprintln!("Using MSVC toolchain");
         eprintln!("Library directory: {}", lib_dir.display());
 
@@ -34,7 +37,10 @@ fn main() {
     }
     // Windows GNU (MinGW) 平台
     else if target.contains("windows-gnu") {
-        let lib_dir = PathBuf::from(&manifest_dir).join("libraw").join("gnu").join("lib");
+        let lib_dir = PathBuf::from(&manifest_dir)
+            .join("libraw")
+            .join("gnu")
+            .join("lib");
         eprintln!("Using MinGW toolchain");
         eprintln!("Library directory: {}", lib_dir.display());
 
@@ -58,7 +64,13 @@ fn main() {
     // Linux/Mac 平台 - 优先使用系统库，如果没有则使用 bundled GNU 库
     else {
         // 1. 首先尝试使用 pkg-config 查找系统 libraw
-        if std::process::Command::new("pkg-config").arg("--exists").arg("libraw").status().map(|s| s.success()).unwrap_or(false) {
+        if std::process::Command::new("pkg-config")
+            .arg("--exists")
+            .arg("libraw")
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+        {
             eprintln!("Using system libraw via pkg-config");
             println!("cargo:rustc-link-lib=dylib=raw");
             println!("cargo:rustc-link-lib=dylib=stdc++");
@@ -75,9 +87,12 @@ fn main() {
             eprintln!("Using system libraw via versioned .so file");
             println!("cargo:rustc-link-lib=dylib=stdc++");
         }
-    // 4. 最后回退到 bundled GNU 库
+        // 4. 最后回退到 bundled GNU 库
         else {
-            let lib_dir = PathBuf::from(&manifest_dir).join("libraw").join("gnu").join("lib");
+            let lib_dir = PathBuf::from(&manifest_dir)
+                .join("libraw")
+                .join("gnu")
+                .join("lib");
             eprintln!("System libraw not found, using bundled GNU libraries");
             eprintln!("Library directory: {}", lib_dir.display());
 
@@ -115,13 +130,12 @@ fn try_link_versioned_libraw(dir: &str) -> bool {
 
     // 遍历目录，查找 libraw.so.X 文件
     let found = match std::fs::read_dir(dir_path) {
-        Ok(entries) => entries
-            .filter_map(|e| e.ok())
-            .find(|e| {
-                let name = e.file_name();
-                let name = name.to_string_lossy();
-                name.starts_with("libraw.so.") && name[10..].chars().all(|c| c.is_ascii_digit() || c == '.')
-            }),
+        Ok(entries) => entries.filter_map(|e| e.ok()).find(|e| {
+            let name = e.file_name();
+            let name = name.to_string_lossy();
+            name.starts_with("libraw.so.")
+                && name[10..].chars().all(|c| c.is_ascii_digit() || c == '.')
+        }),
         Err(_) => None,
     };
 

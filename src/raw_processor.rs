@@ -79,7 +79,7 @@ impl ImageFormat {
             _ => ImageFormat::Unknown(code),
         }
     }
-    
+
     /// Get MIME type for the format
     pub fn mime_type(&self) -> &'static str {
         match self {
@@ -118,7 +118,7 @@ impl RawProcessor {
     /// # 示例
     /// ```no_run
     /// use rawlib::RawProcessor;
-    /// 
+    ///
     /// let processor = RawProcessor::new()?;
     /// # Ok::<(), rawlib::RawError>(())
     /// ```
@@ -135,7 +135,7 @@ impl RawProcessor {
 
         Ok(RawProcessor { data })
     }
-    
+
     /// 从文件系统打开 RAW 文件
     ///
     /// 打开指定的 RAW 文件并读取其基本信息。这个方法会：
@@ -193,80 +193,80 @@ impl RawProcessor {
                 code: -1,
                 message: format!("Invalid path encoding: {}", path_ref.display()),
             })?;
-            
+
             let c_path = CString::new(path_str).map_err(|e| RawError {
                 code: -1,
                 message: format!("Path contains null byte: {} (error: {})", path_str, e),
             })?;
-            
+
             let ret = unsafe { ffi::libraw_open_file(self.data, c_path.as_ptr()) };
-            
+
             if ret != ffi::LIBRAW_SUCCESS {
                 let mut err = self.make_error(ret);
                 err.message = format!("{} (file: {})", err.message, path_str);
                 return Err(err);
             }
         }
-        
+
         Ok(())
     }
-    
+
     /// Unpack the RAW data
     pub fn unpack(&mut self) -> Result<()> {
         let ret = unsafe { ffi::libraw_unpack(self.data) };
-        
+
         if ret != ffi::LIBRAW_SUCCESS {
             return Err(self.make_error(ret));
         }
-        
+
         Ok(())
     }
-    
+
     /// Process the RAW data (demosaic, white balance, etc.)
     pub fn dcraw_process(&mut self) -> Result<()> {
         let ret = unsafe { ffi::libraw_dcraw_process(self.data) };
-        
+
         if ret != ffi::LIBRAW_SUCCESS {
             return Err(self.make_error(ret));
         }
-        
+
         Ok(())
     }
-    
+
     /// Recycle internal buffers
     pub fn recycle(&mut self) {
         unsafe { ffi::libraw_recycle(self.data) };
     }
-    
+
     /// Unpack thumbnail data
     pub fn unpack_thumb(&mut self) -> Result<()> {
         let ret = unsafe { ffi::libraw_unpack_thumb(self.data) };
-        
+
         if ret != ffi::LIBRAW_SUCCESS {
             return Err(self.make_error(ret));
         }
-        
+
         Ok(())
     }
-    
+
     /// Extract thumbnail as raw bytes
-    /// 
+    ///
     /// This method opens the RAW file, extracts the embedded thumbnail,
     /// and returns it as a byte vector. The thumbnail is typically in JPEG format.
-    /// 
+    ///
     /// # Arguments
-    /// 
+    ///
     /// * `path` - Path to the RAW file
-    /// 
+    ///
     /// # Returns
-    /// 
+    ///
     /// Returns `ThumbnailData` containing the thumbnail image data and metadata
-    /// 
+    ///
     /// # Example
-    /// 
+    ///
     /// ```no_run
     /// use rawlib::RawProcessor;
-    /// 
+    ///
     /// let thumb_data = RawProcessor::extract_thumbnail("image.cr2").unwrap();
     /// std::fs::write("thumb.jpg", &thumb_data.data).unwrap();
     /// ```
@@ -296,31 +296,23 @@ impl RawProcessor {
         let mut errc: i32 = 0;
 
         // 调用 LibRaw 创建内存中的缩略图图像
-        let img_ptr = unsafe {
-            ffi::libraw_dcraw_make_mem_thumb(self.data, &mut errc as *mut i32)
-        };
-        
+        let img_ptr = unsafe { ffi::libraw_dcraw_make_mem_thumb(self.data, &mut errc as *mut i32) };
+
         if img_ptr.is_null() {
             return Err(self.make_error(errc));
         }
-        
+
         // SAFETY: img_ptr is valid and we'll copy the data before freeing
         let thumbnail = unsafe {
             let img = &*img_ptr;
             let format = ImageFormat::from_code(img.image_type);
-            
+
             // Calculate the actual data size
             let data_size = img.data_size as usize;
-            
-            // Copy the image data
-            // SAFETY: data field is a flexible array member, 
-            // actual size is data_size bytes
-            let data_ptr = img.data.as_ptr();
-            let mut data = Vec::with_capacity(data_size);
-            // SAFETY: data 的容量为 data_size，紧随其后会被 copy_nonoverlapping 完全填充
-            data.set_len(data_size);
-            std::ptr::copy_nonoverlapping(data_ptr, data.as_mut_ptr(), data_size);
-            
+
+            // Copy the image data from the flexible array member
+            let data = std::slice::from_raw_parts(img.data.as_ptr(), data_size).to_vec();
+
             ThumbnailData {
                 format,
                 width: img.width,
@@ -330,15 +322,103 @@ impl RawProcessor {
                 data,
             }
         };
-        
+
         // Free the LibRaw allocated memory
         unsafe {
             ffi::libraw_dcraw_clear_mem(img_ptr);
         }
-        
+
         Ok(thumbnail)
     }
-    
+
+    /// 从已打开、解包并处理完的文件中获取完整 RAW 解码图像数据
+    ///
+    /// 这个方法假设：
+    /// - 文件已经被 `open_file()` 打开
+    /// - RAW 数据已经被 `unpack()` 解包
+    /// - 图像已经被 `dcraw_process()` 处理（去马赛克、白平衡等）
+    ///
+    /// 返回的 `ThumbnailData` 包含解码后的位图像素数据（RGB 格式），
+    /// 可直接用于图像查看器或进一步处理。
+    ///
+    /// # 返回值
+    /// `Ok(ThumbnailData)` - 包含格式、尺寸和原始像素数据的完整图像
+    /// `Err(RawError)` - 获取图像失败时的错误信息
+    pub fn get_image(&self) -> Result<ThumbnailData> {
+        let mut errc: i32 = 0;
+
+        // 调用 LibRaw 创建内存中的完整图像
+        let img_ptr = unsafe { ffi::libraw_dcraw_make_mem_image(self.data, &mut errc as *mut i32) };
+
+        if img_ptr.is_null() {
+            return Err(self.make_error(errc));
+        }
+
+        // SAFETY: img_ptr is valid and we'll copy the data before freeing
+        let image = unsafe {
+            let img = &*img_ptr;
+            let format = ImageFormat::from_code(img.image_type);
+
+            let data_size = img.data_size as usize;
+
+            // Copy the image data from the flexible array member
+            let data = std::slice::from_raw_parts(img.data.as_ptr(), data_size).to_vec();
+
+            ThumbnailData {
+                format,
+                width: img.width,
+                height: img.height,
+                colors: img.colors,
+                bits: img.bits,
+                data,
+            }
+        };
+
+        // Free the LibRaw allocated memory
+        unsafe {
+            ffi::libraw_dcraw_clear_mem(img_ptr);
+        }
+
+        Ok(image)
+    }
+
+    /// 一键提取 RAW 文件的完整解码图像数据
+    ///
+    /// 这是提取完整 RAW 图像的最简单方法，它处理了整个流程：
+    /// 1. 创建新的处理器实例
+    /// 2. 打开 RAW 文件
+    /// 3. 解包 RAW 数据（解析文件结构）
+    /// 4. 处理 RAW 数据（去马赛克、白平衡、色彩校正等）
+    /// 5. 获取处理后的完整图像数据
+    ///
+    /// 返回的 `ThumbnailData` 包含解码后的位图像素数据，格式通常为
+    /// `ImageFormat::Bitmap`（RGB 三通道，每通道 8 或 16 位），
+    /// 可直接渲染或保存。
+    ///
+    /// # 参数
+    /// * `path` - RAW 文件的路径
+    ///
+    /// # 返回值
+    /// `Ok(ThumbnailData)` - 包含解码图像的完整信息
+    /// `Err(RawError)` - 处理失败时的错误信息
+    ///
+    /// # 示例
+    /// ```no_run
+    /// use rawlib::RawProcessor;
+    ///
+    /// let image = RawProcessor::extract_image("photo.cr2").unwrap();
+    /// println!("Size: {}x{}, Colors: {}, Bits: {}",
+    ///     image.width, image.height, image.colors, image.bits);
+    /// // image.data 包含原始 RGB 像素数据
+    /// ```
+    pub fn extract_image<P: AsRef<Path>>(path: P) -> Result<ThumbnailData> {
+        let mut processor = RawProcessor::new()?;
+        processor.open_file(path)?;
+        processor.unpack()?;
+        processor.dcraw_process()?;
+        processor.get_image()
+    }
+
     /// 获取 LibRaw 版本字符串
     ///
     /// 返回当前链接的 LibRaw 库的版本信息字符串，例如 "0.21.4-Release"。
@@ -350,9 +430,7 @@ impl RawProcessor {
         unsafe {
             // 调用 LibRaw 获取版本字符串
             let ver = ffi::libraw_version();
-            CStr::from_ptr(ver)
-                .to_string_lossy()
-                .into_owned()
+            CStr::from_ptr(ver).to_string_lossy().into_owned()
         }
     }
 
@@ -366,7 +444,7 @@ impl RawProcessor {
     pub fn version_number() -> i32 {
         unsafe { ffi::libraw_versionNumber() }
     }
-    
+
     /// 根据 LibRaw 错误代码创建错误信息
     ///
     /// 调用 LibRaw 的错误字符串函数获取用户友好的错误描述
@@ -374,15 +452,10 @@ impl RawProcessor {
         let msg = unsafe {
             // 获取 LibRaw 提供的错误描述字符串
             let err_str = ffi::libraw_strerror(code);
-            CStr::from_ptr(err_str)
-                .to_string_lossy()
-                .into_owned()
+            CStr::from_ptr(err_str).to_string_lossy().into_owned()
         };
 
-        RawError {
-            code,
-            message: msg,
-        }
+        RawError { code, message: msg }
     }
 }
 

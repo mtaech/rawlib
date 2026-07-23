@@ -1,6 +1,6 @@
 //! Example of parallel processing with rawlib
 
-use rawlib::parallel::{ParallelProcessor, ParallelConfig, process_files_parallel};
+use rawlib::parallel::{process_files_parallel, ParallelConfig, ParallelProcessor};
 use std::path::PathBuf;
 
 fn main() {
@@ -8,7 +8,7 @@ fn main() {
 
     // Example 1: Simple parallel processing with default settings
     println!("=== Example 1: Simple Parallel Processing ===");
-    
+
     let files = vec![
         PathBuf::from("photo1.cr2"),
         PathBuf::from("photo2.nef"),
@@ -21,8 +21,9 @@ fn main() {
     for result in &results {
         match &result.thumbnail {
             Ok(thumb) => {
-                println!("✓ {}: {} bytes in {:?}", 
-                    result.path.display(), 
+                println!(
+                    "✓ {}: {} bytes in {:?}",
+                    result.path.display(),
                     thumb.data.len(),
                     result.elapsed
                 );
@@ -37,8 +38,8 @@ fn main() {
     println!("\n=== Example 2: Custom Configuration ===");
 
     let config = ParallelConfig {
-        jobs: Some(4),      // Use exactly 4 threads
-        verbose: true,      // Enable verbose output
+        jobs: Some(4), // Use exactly 4 threads
+        verbose: true, // Enable verbose output
         on_progress: None,
     };
 
@@ -70,11 +71,11 @@ fn main() {
     println!("\n=== Example 4: Single File Processing ===");
 
     let result = ParallelProcessor::process_single("photo.cr2");
-    
+
     println!("File: {}", result.path.display());
     println!("Input size: {} bytes", result.input_size);
     println!("Processing time: {:?}", result.elapsed);
-    
+
     match result.thumbnail {
         Ok(thumb) => {
             println!("Thumbnail size: {}x{}", thumb.width, thumb.height);
@@ -105,15 +106,15 @@ fn main() {
 
     if !all_files.is_empty() {
         println!("Found {} RAW files", all_files.len());
-        
+
         let config = ParallelConfig {
             jobs: Some(8),
             verbose: true,
             on_progress: None,
         };
-        
+
         let (_results, stats) = ParallelProcessor::process_with_stats(&all_files, &config);
-        
+
         println!("\nProcessed at {:.1} files/sec", stats.files_per_second());
     } else {
         println!("No RAW files found in ./photos directory");

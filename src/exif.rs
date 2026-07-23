@@ -3,8 +3,8 @@
 //! This module provides EXIF metadata extraction from RAW files,
 //! including camera information, shooting parameters, and timestamps.
 
-use std::path::Path;
 use std::collections::HashMap;
+use std::path::Path;
 
 // Re-export exif crate types
 use exif::{Reader, Tag, Value};
@@ -51,7 +51,7 @@ impl ExifData {
     /// Returns a formatted summary of key EXIF data
     pub fn summary(&self) -> String {
         let mut parts = Vec::new();
-        
+
         if let Some(ref make) = self.make {
             parts.push(format!("相机: {}", make));
         }
@@ -79,7 +79,7 @@ impl ExifData {
         if let (Some(w), Some(h)) = (self.image_width, self.image_height) {
             parts.push(format!("尺寸: {}x{}", w, h));
         }
-        
+
         parts.join(" | ")
     }
 
@@ -123,18 +123,18 @@ impl ExifData {
 /// ```
 pub fn extract_exif<P: AsRef<Path>>(path: P) -> Result<ExifData, ExifError> {
     let path = path.as_ref();
-    
+
     if !path.exists() {
         return Err(ExifError::FileNotFound(path.to_path_buf()));
     }
 
-    let file = std::fs::File::open(path)
-        .map_err(|e| ExifError::Io(e))?;
-    
+    let file = std::fs::File::open(path).map_err(|e| ExifError::Io(e))?;
+
     let mut bufreader = std::io::BufReader::new(file);
     let exifreader = Reader::new();
-    
-    let exif = exifreader.read_from_container(&mut bufreader)
+
+    let exif = exifreader
+        .read_from_container(&mut bufreader)
         .map_err(|e: exif::Error| ExifError::ParseError(e.to_string()))?;
 
     let mut data = ExifData::default();
@@ -229,10 +229,10 @@ fn parse_gps_coordinate(value: &Value) -> Option<(f64, f64, f64)> {
 pub enum ExifError {
     #[error("File not found: {0}")]
     FileNotFound(std::path::PathBuf),
-    
+
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
-    
+
     #[error("Failed to parse EXIF data: {0}")]
     ParseError(String),
 }

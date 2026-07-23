@@ -3,7 +3,7 @@
 //! This module provides high-level parallel processing capabilities
 //! for batch extracting thumbnails from multiple RAW files.
 
-use crate::{RawProcessor, ThumbnailData, RawError};
+use crate::{RawError, RawProcessor, ThumbnailData};
 use rayon::prelude::*;
 use serde::Serialize;
 use std::path::{Path, PathBuf};
@@ -26,7 +26,10 @@ impl std::fmt::Debug for ParallelConfig {
         f.debug_struct("ParallelConfig")
             .field("jobs", &self.jobs)
             .field("verbose", &self.verbose)
-            .field("on_progress", &self.on_progress.as_ref().map(|_| "<callback>"))
+            .field(
+                "on_progress",
+                &self.on_progress.as_ref().map(|_| "<callback>"),
+            )
             .finish()
     }
 }
@@ -161,11 +164,9 @@ impl ParallelProcessor {
         let process_fn = |path: &P| {
             let path = path.as_ref();
             let file_start = Instant::now();
-            
+
             // Get input file size
-            let input_size = std::fs::metadata(path)
-                .map(|m| m.len())
-                .unwrap_or(0);
+            let input_size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
 
             // Extract thumbnail
             let result = RawProcessor::extract_thumbnail(path);
@@ -191,7 +192,10 @@ impl ParallelProcessor {
 
         if config.verbose {
             let elapsed = start.elapsed();
-            let success_count = results.iter().filter(|r: &&ProcessResult| r.is_success()).count();
+            let success_count = results
+                .iter()
+                .filter(|r: &&ProcessResult| r.is_success())
+                .count();
             println!(
                 "Processed {} files in {:?} ({} succeeded, {} failed)",
                 results.len(),
@@ -221,7 +225,7 @@ impl ParallelProcessor {
 
         for result in &results {
             stats.total_input_bytes += result.input_size;
-            
+
             if let Ok(ref thumb) = result.thumbnail {
                 stats.success += 1;
                 stats.total_output_bytes += thumb.data.len() as u64;
@@ -237,10 +241,8 @@ impl ParallelProcessor {
     pub fn process_single<P: AsRef<Path>>(path: P) -> ProcessResult {
         let path = path.as_ref();
         let start = Instant::now();
-        
-        let input_size = std::fs::metadata(path)
-            .map(|m| m.len())
-            .unwrap_or(0);
+
+        let input_size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
 
         let result = RawProcessor::extract_thumbnail(path);
 

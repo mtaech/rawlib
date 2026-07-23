@@ -10,8 +10,8 @@
 //!   - 用户输入错误（无效格式、策略等）
 //!   - 配置错误
 
-use thiserror::Error;
 use std::path::PathBuf;
+use thiserror::Error;
 
 /// RawLib 应用程序的统一错误类型
 ///

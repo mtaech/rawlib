@@ -31,8 +31,8 @@ impl OverwritePolicy {
             "skip" => Ok(Self::Skip),
             "overwrite" => Ok(Self::Overwrite),
             "rename" => Ok(Self::Rename),
-            _ => Err(Error::InvalidOverwritePolicy { 
-                policy: s.to_string() 
+            _ => Err(Error::InvalidOverwritePolicy {
+                policy: s.to_string(),
             }),
         }
     }
@@ -60,12 +60,12 @@ impl OutputFormat {
             "auto" => Ok(Self::Auto),
             "jpg" | "jpeg" => Ok(Self::Jpeg),
             "bmp" => Ok(Self::Bitmap),
-            _ => Err(Error::InvalidOutputFormat { 
-                format: s.to_string() 
+            _ => Err(Error::InvalidOutputFormat {
+                format: s.to_string(),
             }),
         }
     }
-    
+
     pub fn extension(&self) -> &str {
         match self {
             Self::Auto | Self::Jpeg => "jpg",
@@ -79,25 +79,25 @@ impl OutputFormat {
 pub struct Config {
     /// 输入文件列表（展开后的所有文件）
     pub input_files: Vec<PathBuf>,
-    
+
     /// 输出目录或文件
     pub output: PathBuf,
-    
+
     /// 处理模式
     pub mode: ProcessMode,
-    
+
     /// 覆盖策略
     pub overwrite_policy: OverwritePolicy,
-    
+
     /// 输出详细程度
     pub verbosity: Verbosity,
-    
+
     /// 显示进度条
     pub show_progress: bool,
-    
+
     /// 输出格式
     pub format: OutputFormat,
-    
+
     /// 并行工作线程数 (None 表示使用 CPU 核心数)
     pub jobs: Option<usize>,
 }
@@ -106,7 +106,7 @@ impl Config {
     /// 从 CLI 参数创建配置
     pub fn from_cli(cli: crate::Cli) -> Result<Self> {
         debug!("Parsing CLI arguments");
-        
+
         // 确定详细程度
         let verbosity = if cli.quiet {
             Verbosity::Quiet
@@ -115,33 +115,26 @@ impl Config {
         } else {
             Verbosity::Normal
         };
-        
+
         // 解析策略
         let overwrite_policy = OverwritePolicy::from_str(&cli.overwrite)?;
         let format = OutputFormat::from_str(&cli.format)?;
-        
+
         // 收集输入文件
-        let input_files = collect_input_files(
-            &cli.inputs,
-            cli.recursive,
-            &cli.extensions,
-            verbosity,
-        )?;
-        
+        let input_files =
+            collect_input_files(&cli.inputs, cli.recursive, &cli.extensions, verbosity)?;
+
         if input_files.is_empty() {
             return Err(Error::NoRawFiles);
         }
-        
+
         info!("Found {} RAW file(s)", input_files.len());
-        
+
         // 确定输出策略
-        let (mode, output) = determine_output_strategy(
-            &input_files,
-            cli.output.as_deref(),
-        )?;
-        
+        let (mode, output) = determine_output_strategy(&input_files, cli.output.as_deref())?;
+
         debug!("Process mode: {:?}, Output: {}", mode, output.display());
-        
+
         Ok(Config {
             input_files,
             output,
@@ -178,12 +171,12 @@ impl ProcessStats {
     pub fn start(&mut self) {
         self.start_time = Some(std::time::Instant::now());
     }
-    
+
     /// 结束计时
     pub fn finish(&mut self) {
         self.end_time = Some(std::time::Instant::now());
     }
-    
+
     /// 获取处理耗时
     pub fn elapsed(&self) -> Option<std::time::Duration> {
         match (self.start_time, self.end_time) {
@@ -192,7 +185,7 @@ impl ProcessStats {
             _ => None,
         }
     }
-    
+
     /// 格式化字节大小为人类可读格式
     fn format_bytes(bytes: u64) -> String {
         const UNITS: &[&str] = &["B", "KB", "MB", "GB", "TB"];
@@ -207,12 +200,12 @@ impl ProcessStats {
             format!("{:.2} {}", value, UNITS[exp])
         }
     }
-    
+
     /// 格式化耗时为人类可读格式
     fn format_duration(duration: std::time::Duration) -> String {
         let secs = duration.as_secs();
         let millis = duration.subsec_millis();
-        
+
         if secs >= 60 {
             let mins = secs / 60;
             let remaining_secs = secs % 60;
@@ -223,14 +216,14 @@ impl ProcessStats {
             format!("{}毫秒", millis)
         }
     }
-    
+
     pub fn print_summary(&self) {
         let elapsed = self.elapsed();
-        
+
         println!("\n========================================");
         println!("处理完成");
         println!("========================================");
-        
+
         // 文件统计
         println!("📁 文件统计:");
         println!("   总计: {} 个文件", self.total);
@@ -241,7 +234,7 @@ impl ProcessStats {
         if self.failed > 0 {
             println!("   ✗ 失败: {} 个文件", self.failed);
         }
-        
+
         // 时间统计
         if let Some(duration) = elapsed {
             println!("\n⏱️  时间统计:");
@@ -254,11 +247,14 @@ impl ProcessStats {
                 println!("   平均耗时: {:.1} 毫秒/文件", ms_per_file);
             }
         }
-        
+
         // 大小统计
         if self.total_output_bytes > 0 {
             println!("\n💾 大小统计:");
-            println!("   输出总大小: {}", Self::format_bytes(self.total_output_bytes));
+            println!(
+                "   输出总大小: {}",
+                Self::format_bytes(self.total_output_bytes)
+            );
             if self.total > 0 {
                 let avg_size = self.total_output_bytes / self.total as u64;
                 println!("   平均大小: {}/文件", Self::format_bytes(avg_size));
@@ -268,7 +264,7 @@ impl ProcessStats {
                 println!("   压缩率: {:.1}%", ratio);
             }
         }
-        
+
         println!("========================================");
     }
 }
@@ -276,7 +272,7 @@ impl ProcessStats {
 /// 主执行函数
 pub fn run(config: Config) -> Result<ProcessStats> {
     use crate::processor::BatchProcessor;
-    
+
     let processor = BatchProcessor::new(config);
     processor.process()
 }
@@ -289,16 +285,13 @@ pub(crate) fn collect_input_files(
     verbosity: Verbosity,
 ) -> Result<Vec<PathBuf>> {
     debug!("Collecting input files (recursive: {})", recursive);
-    
+
     let mut files = Vec::new();
-    let extensions_lower: Vec<String> = extensions
-        .iter()
-        .map(|e| e.to_lowercase())
-        .collect();
-    
+    let extensions_lower: Vec<String> = extensions.iter().map(|e| e.to_lowercase()).collect();
+
     for input in inputs {
         let path = Path::new(input);
-        
+
         if !path.exists() {
             warn!("Path does not exist: {}", input);
             if verbosity >= Verbosity::Normal {
@@ -306,7 +299,7 @@ pub(crate) fn collect_input_files(
             }
             continue;
         }
-        
+
         if path.is_file() {
             if is_raw_file(path, &extensions_lower) {
                 debug!("Added file: {}", path.display());
@@ -321,7 +314,7 @@ pub(crate) fn collect_input_files(
             } else {
                 WalkDir::new(path).max_depth(1).follow_links(false)
             };
-            
+
             for entry in walker.into_iter().filter_map(|e| e.ok()) {
                 if entry.file_type().is_file() {
                     let file_path = entry.path();
@@ -333,7 +326,7 @@ pub(crate) fn collect_input_files(
             }
         }
     }
-    
+
     Ok(files)
 }
 
@@ -356,7 +349,7 @@ fn determine_output_strategy(
             debug!("Single file mode with specified output");
             Ok((ProcessMode::SingleFile, PathBuf::from(out)))
         }
-        
+
         // 单文件 + 无输出 = 同目录，替换扩展名
         (1, None) => {
             debug!("Single file mode with auto output");
@@ -364,13 +357,13 @@ fn determine_output_strategy(
             let output = input.with_extension("jpg");
             Ok((ProcessMode::SingleFile, output))
         }
-        
+
         // 多文件 + 指定输出目录 = 批处理模式
         (_, Some(out)) => {
             debug!("Batch mode with specified output directory");
             Ok((ProcessMode::Batch, PathBuf::from(out)))
         }
-        
+
         // 多文件 + 无输出 = 批处理模式，使用 "thumbnails" 目录
         (_, None) => {
             debug!("Batch mode with default output directory");
@@ -382,7 +375,7 @@ fn determine_output_strategy(
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_overwrite_policy_from_str() {
         assert!(matches!(
@@ -399,7 +392,7 @@ mod tests {
         ));
         assert!(OverwritePolicy::from_str("invalid").is_err());
     }
-    
+
     #[test]
     fn test_output_format_from_str() {
         assert!(matches!(
@@ -420,7 +413,7 @@ mod tests {
         ));
         assert!(OutputFormat::from_str("invalid").is_err());
     }
-    
+
     #[test]
     fn test_output_format_extension() {
         assert_eq!(OutputFormat::Auto.extension(), "jpg");
